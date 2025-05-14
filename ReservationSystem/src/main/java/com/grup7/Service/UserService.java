@@ -4,6 +4,7 @@ import com.grup7.Dto.UserDto;
 import com.grup7.Dto.TableDto;
 import com.grup7.Entity.User;
 import com.grup7.Entity.Table;
+import com.grup7.Exception.ValidationException;
 import com.grup7.Repository.IUserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,24 @@ public class UserService {
     @Autowired
     private TableService tableService;
 
+    // İsim ve soyisim validasyonu için yeni metod
+    private void validateNameAndSurname(String name, String surname) {
+        if (name == null || name.trim().isEmpty()) {
+            throw new ValidationException("İsim alanı boş bırakılamaz");
+        }
+        if (surname == null || surname.trim().isEmpty()) {
+            throw new ValidationException("Soyisim alanı boş bırakılamaz");
+        }
+
+        // İsim ve soyisimde sadece harf kontrolü
+        if (!name.matches("^[a-zA-ZçÇğĞıİöÖşŞüÜ\\s]+$")) {
+            throw new ValidationException("İsim sadece harflerden oluşmalıdır");
+        }
+        if (!surname.matches("^[a-zA-ZçÇğĞıİöÖşŞüÜ\\s]+$")) {
+            throw new ValidationException("Soyisim sadece harflerden oluşmalıdır");
+        }
+    }
+
     // Table entity'sini TableDto'ya dönüştüren yardımcı metod
     private TableDto convertToTableDto(Table table, LocalDate reservationDate) {
         TableDto dto = new TableDto();
@@ -32,9 +51,12 @@ public class UserService {
 
     // UserDto'yu User entity'sine dönüştüren yardımcı metod
     private User convertToUser(UserDto userDto) {
+        // Validasyon kontrolü
+        validateNameAndSurname(userDto.getName(), userDto.getSurname());
+
         User user = new User();
-        user.setName(userDto.getName());
-        user.setSurname(userDto.getSurname());
+        user.setName(userDto.getName().trim()); // Baştaki ve sondaki boşlukları temizle
+        user.setSurname(userDto.getSurname().trim()); // Baştaki ve sondaki boşlukları temizle
         user.setDate(userDto.getDate());
         return user;
     }
@@ -60,17 +82,20 @@ public class UserService {
     }
 
     public UserDto addUser(UserDto userDto) {
+        // Validasyon kontrolü burada yapılacak
+        validateNameAndSurname(userDto.getName(), userDto.getSurname());
+
         List<Table> availableTables = tableService.getAvailableTables(userDto.getDate());
 
         if (availableTables.isEmpty()) {
-            throw new RuntimeException("Belirtilen tarih için uygun masa bulunmamaktadır");
+            throw new ValidationException("Belirtilen tarih için uygun masa bulunmamaktadır");
         }
 
         Table selectedTable = availableTables.get(0);
         boolean reserved = tableService.reserveTable(selectedTable.getId(), userDto.getDate());
 
         if (!reserved) {
-            throw new RuntimeException("Masa rezervasyonu yapılamadı");
+            throw new ValidationException("Masa rezervasyonu yapılamadı");
         }
 
         User newUser = convertToUser(userDto);
@@ -81,6 +106,9 @@ public class UserService {
     }
 
     public UserDto updateUser(Long id, UserDto userDto) {
+        // Validasyon kontrolü
+        validateNameAndSurname(userDto.getName(), userDto.getSurname());
+
         Optional<User> userOptional = userRepository.findById(id);
         if (userOptional.isPresent()) {
             User updatedUser = userOptional.get();
@@ -96,7 +124,7 @@ public class UserService {
                 List<Table> availableTables = tableService.getAvailableTables(userDto.getDate());
 
                 if (availableTables.isEmpty()) {
-                    throw new RuntimeException("Yeni tarih için uygun masa bulunmamaktadır");
+                    throw new ValidationException("Yeni tarih için uygun masa bulunmamaktadır");
                 }
 
                 Table newTable = availableTables.get(0);
@@ -104,19 +132,19 @@ public class UserService {
                 updatedUser.setReservedTable(newTable);
             }
 
-            updatedUser.setName(userDto.getName());
-            updatedUser.setSurname(userDto.getSurname());
+            updatedUser.setName(userDto.getName().trim());
+            updatedUser.setSurname(userDto.getSurname().trim());
             updatedUser.setDate(userDto.getDate());
 
             User savedUser = userRepository.save(updatedUser);
             return convertToUserDto(savedUser);
         }
-        return null;
+        throw new ValidationException("Kullanıcı bulunamadı");
     }
 
     public void deleteUser(Long id) {
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı"));
+                .orElseThrow(() -> new ValidationException("Kullanıcı bulunamadı"));
 
         if (user.getReservedTable() != null) {
             tableService.cancelReservation(user.getReservedTable().getId(), user.getDate());
